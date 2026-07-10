@@ -1,0 +1,39 @@
+{
+  "name": "heroshots",
+  "version": "0.1.0",
+  "description": "Official Node.js SDK for the HeroShots / StudioHero platform (JWT auth).",
+  "main": "src/index.js",
+  "types": "index.d.ts",
+  "files": [
+    "src",
+    "index.d.ts",
+    "README.md",
+    "GUIDE.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "pack:check": "npm pack --dry-run"
+  },
+  "keywords": [
+    "heroshots",
+    "studiohero",
+    "sdk",
+    "api",
+    "video",
+    "image"
+  ],
+  "author": "HeroShots",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JasonPriore/HeroShotsSDK-Node.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JasonPriore/HeroShotsSDK-Node/issues"
+  },
+  "homepage": "https://heroshots.ai",
+  "engines": {
+    "node": ">=18"
+  }
+}
