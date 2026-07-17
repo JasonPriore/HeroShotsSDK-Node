@@ -26,6 +26,7 @@ class HeroShotsClient {
       token = null,
       email = null,
       password = null,
+      managedUserId = null,
       timeout = DEFAULT_TIMEOUT,
       fetch: fetchImpl = globalThis.fetch,
       autoRelogin = true
@@ -37,6 +38,7 @@ class HeroShotsClient {
 
     this.baseUrl = String(baseUrl).replace(/\/+$/, "");
     this.token = token;
+    this.managedUserId = managedUserId;
     this._email = email;
     this._password = password;
     this._autoRelogin = autoRelogin;
@@ -122,6 +124,11 @@ class HeroShotsClient {
     return out;
   }
 
+  withManagedUser(managedUserId) {
+    this.managedUserId = managedUserId;
+    return this;
+  }
+
   async request(method, requestPath, options = {}, retried = false) {
     const {
       json = undefined,
@@ -143,6 +150,9 @@ class HeroShotsClient {
     const headers = {};
     if (auth && this.token) {
       headers.Authorization = `Bearer ${this.token}`;
+    }
+    if (auth && this.managedUserId !== null && this.managedUserId !== undefined) {
+      headers["X-Managed-User-Id"] = String(this.managedUserId);
     }
 
     let body;

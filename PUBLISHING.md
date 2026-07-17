@@ -6,9 +6,9 @@ secrets.
 
 ## One-time npm setup
 
-Create an npm account. The first version must be published once manually,
-because npm trusted publisher settings are available only after the package
-exists on the registry.
+Create an npm account and enable 2FA on it. The first version must be published
+once manually, because npm trusted publisher settings are available only after
+the package exists on the registry.
 
 | Field | Value |
 |---|---|
@@ -49,8 +49,13 @@ npm ci
 npm test
 npm run pack:check
 npm login
+npm profile enable-2fa auth-and-writes
 npm publish
 ```
+
+If you already enabled 2FA from npmjs.com, skip the `npm profile enable-2fa`
+line and run `npm publish` again. npm will prompt for your configured second
+factor when required.
 
 Then create the matching GitHub tag/release for history. The publish workflow is
 idempotent and skips `npm publish` if the same version already exists on npm:

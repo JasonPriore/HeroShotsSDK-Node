@@ -28,6 +28,40 @@ Tre concetti validi per tutto l'SDK:
 2. Le generazioni asincrone ritornano un id; usa `wait(...)`.
 3. Ogni generazione consuma crediti: controlla con `client.balance()`.
 
+## 0.1 Agenzie: selezionare il brand/utente gestito
+
+Se usi una API key agenzia, prima scegli il brand/utente gestito su cui vuoi
+operare. Il valore è il `managed_user_id` restituito dalla creazione/lista dei
+managed client. Dopo averlo impostato, usi gli stessi metodi di generazione delle
+sezioni successive: l'SDK aggiunge `X-Managed-User-Id` alle richieste autenticate.
+
+```js
+const { Client } = require("heroshots");
+
+const client = new Client({
+  token: "lz_live_YOUR_AGENCY_KEY",
+  managedUserId: 12345 // brand/utente gestito selezionato
+});
+
+// Da qui in poi le generazioni vengono eseguite come quel brand.
+const gen = await client.images.generate("product.jpg", {
+  still_life: true,
+  ratio: "1:1"
+});
+
+// Per passare a un altro brand gestito senza ricreare il client:
+client.withManagedUser(67890);
+const task = await client.videos.generate("product.jpg", {
+  custom_prompt: "slow dolly-in"
+});
+
+// Per tornare a chiamate senza act-as:
+client.withManagedUser(null);
+```
+
+La key agenzia deve avere `agency:act_as` e gli scope richiesti dalla route di
+generazione. Lo stato della relazione e gli scope vengono validati dall'API.
+
 ## 1. Balance
 
 ```js

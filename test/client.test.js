@@ -74,6 +74,36 @@ test("v1 envelope is unwrapped with _meta", async () => {
   assert.equal(out._meta.credits_remaining, 5);
 });
 
+test("managed user header is sent for agency act-as", async () => {
+  const { client, fetch } = makeClient([
+    makeResponse({
+      success: true,
+      data: { generation_id: "g1", status: "pending" }
+    })
+  ], { token: "agency-key", managedUserId: 12345 });
+
+  const out = await client.images.generate("https://x/p.jpg");
+  assert.equal(out.generation_id, "g1");
+  assert.equal(fetch.calls[0].options.headers.Authorization, "Bearer agency-key");
+  assert.equal(fetch.calls[0].options.headers["X-Managed-User-Id"], "12345");
+});
+
+test("managed user header is absent by default and with auth disabled", async () => {
+  const { client, fetch } = makeClient([
+    makeResponse({
+      success: true,
+      data: { generation_id: "g1", status: "pending" }
+    }),
+    makeResponse({ token: "fresh" })
+  ]);
+
+  await client.images.generate("https://x/p.jpg");
+  assert.equal(fetch.calls[0].options.headers["X-Managed-User-Id"], undefined);
+
+  await client.withManagedUser(12345).login("a@b.com", "pw");
+  assert.equal(fetch.calls[1].options.headers["X-Managed-User-Id"], undefined);
+});
+
 test("balance is compact and stats is raw", async () => {
   const statsPayload = {
     hs_credits: 120,

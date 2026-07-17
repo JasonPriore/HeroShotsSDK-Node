@@ -26,6 +26,7 @@ export interface ClientOptions {
   token?: string | null;
   email?: string | null;
   password?: string | null;
+  managedUserId?: string | number | null;
   timeout?: number;
   fetch?: typeof fetch;
   autoRelogin?: boolean;
@@ -43,6 +44,7 @@ export class HeroShotsClient {
 
   baseUrl: string;
   token: string | null;
+  managedUserId: string | number | null;
   avatars: Avatars;
   images: Images;
   longvideo: LongVideo;
@@ -55,6 +57,7 @@ export class HeroShotsClient {
   me(): Promise<JsonObject>;
   stats(): Promise<JsonObject>;
   balance(): Promise<JsonObject>;
+  withManagedUser(managedUserId: string | number | null): HeroShotsClient;
   request(method: string, path: string, options?: JsonObject): Promise<any>;
 }
 
