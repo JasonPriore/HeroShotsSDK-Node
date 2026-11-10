@@ -19,12 +19,14 @@ const {
 
 const BASE = "https://api.test";
 
-function makeResponse(json, status = 200) {
+function makeResponse(json, status = 200, headers = {}) {
   const text = typeof json === "string" ? json : JSON.stringify(json);
   return {
     ok: status >= 200 && status < 300,
     status,
-    text: async () => text
+    headers: new Headers(headers),
+    text: async () => text,
+    arrayBuffer: async () => new TextEncoder().encode(text).buffer
   };
 }
 
@@ -45,6 +47,7 @@ function makeFetch(responses) {
 function makeClient(responses, options = {}) {
   const fetch = makeFetch(responses);
   const client = new HeroShotsClient({ baseUrl: BASE, token: "tok", autoRelogin: false, fetch, ...options });
+  client._sleep = async () => {};
   return { client, fetch };
 }
 
@@ -149,8 +152,45 @@ test("404 and 429 map to specific classes", async () => {
   ]);
   await assert.rejects(() => notFound.client.storyboard.status("missing"), NotFoundError);
 
-  const rateLimited = makeClient([makeResponse("too many", 429)]);
-  await assert.rejects(() => rateLimited.client.balance(), RateLimitError);
+  const rateLimited = makeClient([makeResponse("too many", 429, { "Retry-After": "7" })], { maxRetries: 0 });
+  await assert.rejects(
+    () => rateLimited.client.balance(),
+    (err) => err instanceof RateLimitError && err.retryAfter === 7
+  );
+});
+
+test("429 without Retry-After is retried with exponential backoff, then raises", async () => {
+  const { client, fetch } = makeClient([
+    makeResponse("too many", 429),
+    makeResponse("too many", 429),
+    makeResponse("too many", 429)
+  ]);
+  const delays = [];
+  client._sleep = async (seconds) => {
+    delays.push(seconds);
+  };
+  await assert.rejects(() => client.stats(), (err) => err instanceof RateLimitError && err.retryAfter === null);
+  assert.equal(fetch.calls.length, 3);
+  assert.deepEqual(delays, [1, 2]);
+});
+
+test("Retry-After is capped at 60 seconds", async () => {
+  const { client } = makeClient([
+    makeResponse("too many", 429, { "Retry-After": "120" }),
+    makeResponse({ ok: true })
+  ]);
+  const delays = [];
+  client._sleep = async (seconds) => {
+    delays.push(seconds);
+  };
+  assert.deepEqual(await client.stats(), { ok: true });
+  assert.deepEqual(delays, [60]);
+});
+
+test("multipart uploads are not retried on 429", async () => {
+  const { client, fetch } = makeClient([makeResponse("too many", 429)]);
+  await assert.rejects(() => client.uploads.image(Buffer.from("x"), "products"), RateLimitError);
+  assert.equal(fetch.calls.length, 1);
 });
 
 test("token expiry auto relogins once when credentials exist", async () => {
@@ -210,11 +250,13 @@ test("wait helpers handle success, failure and timeout", async () => {
   ]);
   const video = await success.client.videos.wait("t1", { interval: 0, timeout: 5 });
   assert.equal(video.video_url, "https://cdn/v.mp4");
+  assert.ok(success.fetch.calls[0].url.endsWith("/api/v1/video/status/t1"));
 
   const failure = makeClient([
     makeResponse({ job_id: 9, status: "failed", error: { code: "provider_error", message: "boom" } })
   ]);
   await assert.rejects(() => failure.client.longvideo.wait(9, { interval: 0, timeout: 5 }), ProviderError);
+  assert.ok(failure.fetch.calls[0].url.endsWith("/api/v1/long-video/status/9"));
 
   const timeout = makeClient([
     makeResponse({ job_id: "slow", status: "queued" })
@@ -229,4 +271,62 @@ test("avatars list uses v1 endpoint", async () => {
   const out = await client.avatars.list();
   assert.equal(out.avatars.length, 1);
   assert.ok(fetch.calls[0].url.includes("/api/v1/avatar/list"));
+});
+
+test("video wait unwraps the v1 status envelope", async () => {
+  const { client, fetch } = makeClient([
+    makeResponse({ success: true, data: { status: "succeeded", video_url: "https://cdn/v.mp4" } })
+  ]);
+  const out = await client.videos.wait("t1", { interval: 0, timeout: 5 });
+  assert.equal(out.video_url, "https://cdn/v.mp4");
+  assert.equal(fetch.calls[0].url, `${BASE}/api/v1/video/status/t1`);
+});
+
+test("long video start, status and view use the right routes", async () => {
+  const { client, fetch } = makeClient([
+    makeResponse({ success: true, data: { job_id: 5, status: "queued" } }, 202),
+    makeResponse({ success: true, data: { job_id: 5, status: "running" } }),
+    makeResponse({ job_id: 5, final_video_url: "https://cdn/f.mp4" })
+  ]);
+  const job = await client.longvideo.start("https://x/p.jpg", { customPrompt: "spot", durationSeconds: 30 });
+  assert.equal(job.job_id, 5);
+  assert.equal(fetch.calls[0].url, `${BASE}/api/v1/long-video/start`);
+  assert.deepEqual(JSON.parse(fetch.calls[0].options.body), {
+    ratio: "16:9",
+    resolution: "1080p",
+    image_url: "https://x/p.jpg",
+    custom_prompt: "spot",
+    duration_seconds: 30
+  });
+
+  await client.longvideo.status(5);
+  assert.equal(fetch.calls[1].url, `${BASE}/api/v1/long-video/status/5`);
+
+  await client.longvideo.view("share-tok");
+  assert.equal(fetch.calls[2].url, `${BASE}/api/auth/long-video/view/share-tok`);
+});
+
+test("still-life background edits stay on the portal routes", async () => {
+  const { client, fetch } = makeClient([
+    makeResponse({ ok: true }),
+    makeResponse({ ok: true }),
+    makeResponse({ status: "done" })
+  ]);
+  await client.stilllife.previewBackground(8, { background_url: "https://x/bg.jpg" });
+  await client.stilllife.changeBackground(8, { background_url: "https://x/bg.jpg" });
+  await client.stilllife.changeBackgroundStatus(8);
+  assert.deepEqual(fetch.calls.map((call) => call.url), [
+    `${BASE}/api/auth/stilllife-video/8/preview-background`,
+    `${BASE}/api/auth/stilllife-video/8/change-background`,
+    `${BASE}/api/auth/stilllife-video/8/change-background/status`
+  ]);
+});
+
+test("JSON requests send User-Agent and Accept headers", async () => {
+  const { client, fetch } = makeClient([makeResponse({ user_id: 1 })]);
+  await client.me();
+  const headers = fetch.calls[0].options.headers;
+  assert.equal(headers["User-Agent"], `heroshots-node/${require("../package.json").version}`);
+  assert.equal(headers.Accept, "application/json");
+  assert.equal(fetch.calls[0].url, `${BASE}/api/auth/me`);
 });

@@ -9,6 +9,7 @@
     "index.d.ts",
     "README.md",
     "GUIDE.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {

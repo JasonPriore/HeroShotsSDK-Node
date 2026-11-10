@@ -1,8 +1,8 @@
 # heroshots (Node.js SDK)
 
-High-level Node.js client for the HeroShots / StudioHero platform, authenticated
-with a **portal JWT or API key**. Covers the same JWT/API-key reachable API
-surface as the Python and PHP SDKs.
+Node.js client for the HeroShots / StudioHero API. Works with a **B2B API key**
+(`lz_live_...`) or a **portal login (JWT)** and covers the whole public
+`/api/v1` surface plus the StudioHero storyboard flow. Aligned 1:1 with the Python SDK.
 
 ## Install
 
@@ -10,116 +10,156 @@ surface as the Python and PHP SDKs.
 npm install heroshots
 ```
 
-Requires Node.js 18+. No runtime dependencies.
+Requires Node.js 18+. No runtime dependencies (uses the global `fetch`,
+`FormData` and `Blob`).
 
 ## Authenticate
 
 ```js
 const { Client } = require("heroshots");
 
-// Email/password login: stores the JWT, auto re-logins on expiry.
-// Base URL defaults to https://app.heroshots.ai.
-const client = await Client.fromLogin("dev@partner.com", "secret");
+// API key (server-to-server). Also read from HEROSHOTS_API_KEY.
+const client = new Client({ apiKey: "lz_live_..." });
 
-// Or reuse an existing token.
+// Portal login: stores the JWT and logs in again automatically when it expires.
+const portal = await Client.fromLogin("dev@partner.com", "secret");
+
+// Or reuse an existing token (JWT or API key).
 const tokenClient = new Client({ token: "eyJ..." });
 ```
 
-## Agency act-as
+Base URL defaults to `https://app.heroshots.ai` (override with `baseUrl` or
+`HEROSHOTS_BASE_URL`). `client.usesApiKey` tells you which credential is in use.
 
-Agency API keys can operate as a managed brand by passing the `managedUserId`
-returned by the managed-client provisioning API. The SDK adds
-`X-Managed-User-Id` to authenticated requests.
+| Endpoints | API key | Portal JWT |
+|---|---|---|
+| `/api/v1/*`: images, videos, long video, still life, avatars, bulk, library, generations, pricing, agency, brand | ✅ | ✅ |
+| Storyboard (StudioHero), uploads, image candidates, still-life background edits, BYO legal documents | ❌ | ✅ |
+
+- API keys are **refused on the Free plan** (`ForbiddenError`, code
+  `plan_not_allowed`), except for agency accounts.
+- **Local file paths** are uploaded automatically only with a portal JWT. With
+  an API key pass public `https://` URLs (or `data:` URIs): the SDK throws a
+  clear `HeroShotsError` otherwise, before sending anything.
+
+## Quick start
 
 ```js
-const { Client } = require("heroshots");
+const client = new Client({ apiKey: "lz_live_..." });
 
-const client = new Client({
-  token: "lz_live_YOUR_AGENCY_KEY",
-  managedUserId: 12345
+console.log(await client.balance()); // { hs_credits: 10, currency_credit: 50, wallet_balance: 50, billing_type: "debit" }
+console.log(await client.pricing.quote("video", { duration_seconds: 15 }));
+
+const job = await client.videos.generate({
+  product_image_url: "https://example.com/product.jpg",
+  avatar_id: 42,
+  custom_prompt: "slow dolly-in, soft studio light",
+  duration_seconds: 15
 });
-const job = await client.images.generate("https://example.com/product.jpg");
-
-// Switch target brand later, or pass null to clear it.
-client.withManagedUser(67890);
+const done = await client.videos.wait(job.task_id || job.video_id);
+console.log(done.video_url);
 ```
 
-## Usage
+`/api/v1` billing metadata (charges, credits left) is under `result._meta`.
+
+## StudioHero storyboard (portal JWT)
 
 ```js
-// Local file paths are auto-uploaded to hosted URLs.
-const briefs = await client.storyboard.briefSuggestions(
-  "product.jpg",
-  "model.jpg",
-  { duration_seconds: 30, language_code: "it" }
-);
+const client = await Client.fromLogin("dev@partner.com", "secret");
 
-const candidates = await client.storyboard.candidates(
-  briefs[0],
-  30,
-  "product.jpg",
-  "model.jpg"
-);
-
-const job = await client.storyboard.generate(
-  briefs[0],
-  30,
-  candidates[0],
-  "product.jpg",
-  "model.jpg"
-);
+// Local file paths are auto-uploaded to hosted URLs (portal JWT only).
+const briefs = await client.storyboard.briefSuggestions("product.jpg", "model.jpg", {
+  duration_seconds: 30,
+  language_code: "it"
+});
+const candidates = await client.storyboard.candidates(briefs[0], 30, "product.jpg", "model.jpg");
+const job = await client.storyboard.generate(briefs[0], 30, candidates[0], "product.jpg", "model.jpg");
 const sb = await client.storyboard.wait(job.job_id);
 
-const vjob = await client.longvideo.start("product.jpg", {
-  storyboard: sb.storyboard
-});
+const vjob = await client.longvideo.start("product.jpg", { storyboard: sb.storyboard });
 const final = await client.longvideo.wait(vjob.job_id);
 console.log(final.final_video_url);
 ```
 
-`/api/v1` response metadata is surfaced under `result._meta`.
-
-## Guide
-
-For step-by-step examples organized by use case, read the full guide:
-[GUIDE.md](https://github.com/JasonPriore/HeroShotsSDK-Node/blob/main/GUIDE.md).
-
 ## Resources
 
-`uploads` · `images` · `videos` · `longvideo` · `stilllife` · `storyboard` ·
-`avatars`
+| Namespace | What it does |
+|---|---|
+| `client.account` | `me()`, `health()` |
+| `client.images` | `generate`, `status`, `wait`, `download`, `generateBackground`, `usageRightsQuote`, `usageRightsUpgrade`, `analyzeEditRegion`, `candidates`, `selectCandidate` |
+| `client.videos` | `generate`, `status`, `wait`, `download` |
+| `client.longvideo` | `start`, `status`, `wait`, `regenerateSegment`, `view` |
+| `client.stilllife` | `start`, `status`, `wait`, `previewBackground`, `changeBackground`, `changeBackgroundStatus` |
+| `client.storyboard` | `briefSuggestions`, `candidates`, `generate`, `frames`, `revise`, `status`, `wait`, `subjectMeasurements`, `analyzeProduct`, `creativity` |
+| `client.avatars` | `list`, `get`, `generate`, `createFromSteps`, `update`, `delete`, `uploadView`, `regenerateView`, `regenerateVariants`, `generatedVersion`, `setImageSet`, `generateSheet`, `generateVoice`, `resolveOutfitLink`, `changeOutfit`, `restoreOutfit`, `improvePrompt`, `analyzeAttributes`, `consentDocument` |
+| `client.bulk` | `list`, `create`, `get`, `update`, `delete`, `uploadImages`, `start`, `wait`, `regenerateItem`, `regenerateAll`, `cancelItem`, `removeItem`, `replaceProduct`, `previews`, `attempts`, `selectAttempt`, `downloadItem`, `downloadProduct`, `downloadGenerated` |
+| `client.generations` | `list`, `iterate` (async generator over every page) |
+| `client.pricing` | `catalog`, `quote`, `videoPackagesCatalog`, `videoPackagesQuote`, `usageRightsRules` |
+| `client.assets` · `client.collections` · `client.backgrounds` · `client.categories` | product library (CRUD; multipart when you pass a file) |
+| `client.uploads` | `image`, `consentDocument`, `referenceAudio` |
+| `client.legal` | `byoStatus`, `manlevaTemplate`, `liberatoriaTemplate`, `uploadManleva`, `attachLiberatoria` |
+| `client.agency` | managed brands: `clients`, `client`, `inviteClient`, `createClient`, `updateClient`, `topup`, `resendInvite`, `claimInvite`, `requestTermination`, `respondTermination`, `cancelTermination` |
+| `client.brand` | the brand side of an agency relationship: `acceptManagerInvite`, `rejectManagerInvite`, `managerRelationship`, `managerRelationships`, termination |
 
-Plus on the client: `login()`, `me()`, `balance()`, `stats()`.
+On the client: `login()`, `me()`, `balance()`, `stats()`, `withManagedUser()`,
+`download()`, `request()`, `usesApiKey`.
 
-Extra backend fields go in the trailing payload object and are forwarded
-verbatim.
+Every method maps 1:1 to an endpoint. Required values are positional; optional
+ones go in an options object at the end (snake_case or camelCase keys, e.g.
+`duration_seconds` / `durationSeconds`). Extra backend fields in that object are
+forwarded verbatim; `null` / `undefined` values are dropped.
+
+## Agency act-as
+
+```js
+const client = new Client({ apiKey: "lz_live_AGENCY_KEY", managedUserId: 12345 });
+await client.images.generate("https://example.com/product.jpg", { avatar_id: 7 });
+client.withManagedUser(67890); // switch brand; null clears it
+```
+
+The SDK adds `X-Managed-User-Id` to authenticated requests. The agency key needs
+`agency:act_as` plus the scopes of the generation route.
+
+## Downloads
+
+Download methods resolve to a `Buffer`, or write the file (creating parent
+directories) and resolve to its path when you pass a destination.
+
+```js
+const bytes = await client.images.download(logId);                     // Buffer
+const file = await client.videos.download(logId, "out/spot.mp4");      // "out/spot.mp4"
+const zip = await client.bulk.downloadGenerated(bulkId, "out/bulk.zip", { item_ids: [1, 2] });
+```
 
 ## Errors
 
 ```js
-const { ValidationError } = require("heroshots");
+const { BillingError, ForbiddenError, RateLimitError, ValidationError } = require("heroshots");
 
 try {
-  await client.storyboard.candidates("", 30, "p.jpg");
+  await client.videos.generate("https://example.com/p.jpg", { duration_seconds: 15 });
 } catch (err) {
-  if (err instanceof ValidationError) {
-    console.log(err.code, err.message, err.details);
+  if (err instanceof BillingError) {          // no payment method / billing details (VAT) missing
+    console.log(err.code, err.message);
+  } else if (err instanceof RateLimitError) { // already retried maxRetries times
+    console.log("retry after", err.retryAfter);
   }
 }
 ```
 
 All structured errors extend `ApiError` and expose `code`, `status` and
-`details`.
+`details`. HTTP 429 is retried automatically (`maxRetries: 2` by default,
+honours `Retry-After` up to 60 s, otherwise waits 1 s, 2 s, 4 s ... up to 30 s).
+Multipart uploads are never retried.
+
+## Guide
+
+Step-by-step examples by use case (Italian):
+[GUIDE.md](https://github.com/JasonPriore/HeroShotsSDK-Node/blob/main/GUIDE.md).
+Changes per version: [CHANGELOG.md](./CHANGELOG.md).
 
 ## Test
 
 ```bash
-npm test
+npm test          # offline, mocked fetch
 ```
-
-## Billing
-
-Generations cost credits. Check remaining credits with `client.balance()`
-(`hs_credits` + `wallet_balance`). Use `client.stats()` for the full raw
-`/api/auth/stats` payload, including recent generations and offered plans. See
-`examples/full_storyboard_flow.js`.

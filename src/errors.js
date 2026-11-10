@@ -26,7 +26,17 @@ class QuotaExceededError extends ApiError {}
 class PayloadTooLargeError extends ApiError {}
 class ProviderError extends ApiError {}
 class ServiceUnavailableError extends ApiError {}
-class RateLimitError extends ApiError {}
+class RateLimitError extends ApiError {
+  constructor(message, options = {}) {
+    super(message, options);
+    // Server hint in seconds (Retry-After header), or null.
+    this.retryAfter = null;
+  }
+}
+// The charge could not be made: no payment method, or billing/VAT data missing.
+// `wallet_vat_validation_required` means the account must complete its billing
+// details (VAT number + VIES check, or the private-person flag) in the portal.
+class BillingError extends ApiError {}
 class InternalError extends ApiError {}
 
 const CODE_MAP = {
@@ -46,12 +56,15 @@ const CODE_MAP = {
   plan_not_allowed: ForbiddenError,
   insufficient_scope: ForbiddenError,
   conflict: ConflictError,
+  plan_change_locked: ConflictError,
   quota_exceeded: QuotaExceededError,
   payload_too_large: PayloadTooLargeError,
   provider_error: ProviderError,
   service_unavailable: ServiceUnavailableError,
   pricing_not_configured: ServiceUnavailableError,
   stripe_not_configured: ServiceUnavailableError,
+  no_payment_method: BillingError,
+  wallet_vat_validation_required: BillingError,
   internal_error: InternalError
 };
 
@@ -106,6 +119,7 @@ module.exports = {
   ProviderError,
   ServiceUnavailableError,
   RateLimitError,
+  BillingError,
   InternalError,
   errorFromResponse
 };

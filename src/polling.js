@@ -60,5 +60,6 @@ module.exports = {
   STORYBOARD_FAIL,
   MEDIA_OK,
   MEDIA_FAIL,
+  sleep,
   wait
 };
