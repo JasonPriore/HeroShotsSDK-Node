@@ -1,6 +1,6 @@
 {
   "name": "heroshots",
-  "version": "0.1.1",
+  "version": "0.3.0",
   "description": "Official Node.js SDK for the HeroShots / StudioHero platform (JWT/API key auth).",
   "main": "src/index.js",
   "types": "index.d.ts",
