@@ -142,16 +142,19 @@ const stats = await client.stats();           // risposta completa, solo JWT por
 ```js
 const gen = await client.images.generate("https://example.com/product.jpg", {
   avatar_id: 42,
-  aspect_ratio: "4:5",
-  size: "2K"
+  aspect_ratio: "3:4", // 1:1 16:9 4:3 3:4 9:16 3:2 2:3 21:9
+  size: "2K"           // 720p 1080p 2K 4K
 });
+console.log(gen.url); // la chiamata attende l'immagine finita
 
-const done = await client.images.wait(gen.generation_id);
-console.log(done.images[0].url);
-
-// Il file finale (stessa filigrana e risoluzione della generazione):
-await client.images.download(done.log_id, "out/foto.jpg");
+// Per non tenere aperta la richiesta: async_generation, poi wait().
+const job = await client.images.generate("https://example.com/product.jpg", { avatar_id: 42, async_generation: true });
+const done = await client.images.wait(job.generation_id); // status "done" o "failed"
+console.log(done.output_url);
 ```
+
+Risultato di `generate` (normale): `{ url, generation_id, _meta: { credits_remaining, charges } }`.
+Risultato di `wait`: `{ status: "done", generation_id, output_url, error: null }`.
 
 Still-life (solo prodotto):
 
@@ -189,11 +192,13 @@ const task = await client.videos.generate({
   resolution: "1080p"
 });
 
-const done = await client.videos.wait(task.task_id || task.video_id);
+const done = await client.videos.wait(task.video_id); // succeeded / failed
 console.log(done.video_url);
-
-const mp4 = await client.videos.download(done.log_id); // Buffer
 ```
+
+`generate()` torna appena il video è stato inviato al motore, con un `video_id`;
+`wait()` lo segue fino alla fine. Non passare `async_generation`: in quel caso
+l'API restituisce un `generation_id` che `videos.wait()` non segue.
 
 ## 4. Still-life video
 
@@ -204,8 +209,8 @@ const task = await client.stilllife.start("https://example.com/product.jpg", "ht
   duration_seconds: 5
 });
 
-const done = await client.stilllife.wait(task.task_id);
-console.log(done.video_url);
+const done = await client.stilllife.wait(task.task_id); // status "done" o "failed"
+console.log(done.processed_video_url);
 
 // Cambio sfondo (solo JWT portale):
 await client.stilllife.changeBackground(task.task_id, { background_url: "https://example.com/bg2.jpg" });
@@ -221,12 +226,23 @@ const job = await client.longvideo.start("https://example.com/product.jpg", {
   resolution: "1080p"
 });
 
-const final = await client.longvideo.wait(job.job_id);
-console.log(final.final_video_url);
+// Attende che tutti i segmenti siano pronti (status "segments_ready").
+const ready = await client.longvideo.wait(job.job_id);
+for (const seg of ready.segments) console.log(seg.index, seg.video_url);
 
 // Rifare un segmento (cascade: true rigenera anche i successivi):
 await client.longvideo.regenerateSegment(job.job_id, 1, { comment: "più lento", cascade: true });
+
+// Montaggio finale (solo JWT portale): unisce i segmenti in final_video_url.
+const final = await client.longvideo.render(job.job_id); // = wait + export + attesa
+console.log(final.final_video_url);
 ```
+
+Come nel portale, quando i segmenti sono pronti il job si ferma in
+`segments_ready`: puoi rivederli o rifarli, poi `export()` (o `render()`) crea il
+video unico. L'export non costa nulla. Con una **API key** l'export non è
+disponibile: usi i singoli `segments[].video_url`. I video con doppiaggio
+arrivano già a `done` con `final_video_url`.
 
 ## 6. Studio Hero (solo JWT portale)
 
@@ -263,7 +279,7 @@ const storyboard = await client.storyboard.wait(job.job_id);
 const videoJob = await client.longvideo.start(product.public_url, {
   storyboard: storyboard.storyboard
 });
-const final = await client.longvideo.wait(videoJob.job_id);
+const final = await client.longvideo.render(videoJob.job_id); // segmenti + montaggio finale
 console.log(final.final_video_url);
 ```
 
@@ -291,7 +307,12 @@ await client.avatars.generateVoice(123, { generation_note: "voce calda" });
 
 // Outfit:
 const shop = await client.avatars.resolveOutfitLink("https://shop.example.com/giacca");
-await client.avatars.changeOutfit(123, [{ slot: "top", url: "https://example.com/top.jpg" }]);
+// slot: hat, top, belt, pants, shoes, accessories (max 6); image_url, link_url o description.
+await client.avatars.changeOutfit(123, [
+  { slot: "top", image_url: shop.image_urls[0], title: shop.title },
+  { slot: "shoes", link_url: "https://shop.example.com/sneakers" },
+  { slot: "hat", description: "berretto di lana nero" }
+]);
 await client.avatars.restoreOutfit(123);
 
 // Consenso firmato (DOCX):
@@ -335,8 +356,13 @@ await client.bulk.downloadGenerated(bulk.id, "out/scelti.zip", { item_ids: [1, 2
 // Storico (una pagina, oppure tutte con l'async generator).
 const page = await client.generations.list({ type: "video", per_page: 20 });
 for await (const g of client.generations.iterate({ type: "image" })) {
-  console.log(g.id);
+  console.log(g.id, g.download_url);
 }
+
+// Download del file (stessa filigrana e risoluzione della generazione).
+// L'id è quello dello storico (g.id), non il generation_id.
+await client.images.download(page.generations[0].id, "out/foto.jpg");
+await client.videos.download(videoLogId, "out/spot.mp4");
 
 // Listino e preventivi.
 await client.pricing.catalog();
@@ -349,6 +375,17 @@ const coll = await client.collections.create("Estate");                         
 await client.collections.addGeneration(coll.id, logId);
 await client.backgrounds.create({ image_url: "https://example.com/bg.jpg", name: "Marmo" });
 await client.categories.setSelected([1, 2]);
+```
+
+## 10. Agenzie: brand gestiti
+
+```js
+const client = new Client({ apiKey: "lz_live_AGENCY_KEY" });
+const { clients } = await client.agency.clients();
+const rel = await client.agency.inviteClient("brand@example.com");
+await client.agency.topup(rel.id, 50); // EUR dal wallet agenzia
+
+// Generare come il brand: vedi §0.1 (managedUserId).
 ```
 
 ## Errori

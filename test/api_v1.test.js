@@ -643,3 +643,40 @@ test("client.download writes nested destinations and forwards params", async () 
   assert.equal(await fs.readFile(dest, "utf8"), "zip");
   assert.ok(fetch.calls[0].url.endsWith("?item_ids=1"));
 });
+
+test("long video wait stops at segments_ready", async () => {
+  const { client } = apiClient([
+    makeResponse(ok({ job_id: 5, status: "generating" })),
+    makeResponse(ok({ job_id: 5, status: "segments_ready", final_video_url: null,
+      segments: [{ index: 1, video_url: "https://cdn/1.mp4" }] }))
+  ]);
+  const out = await client.longvideo.wait(5, { interval: 0, timeout: 5 });
+  assert.equal(out.status, "segments_ready");
+  assert.ok(out.segments[0].video_url.endsWith("1.mp4"));
+});
+
+test("long video render exports then waits for the final video", async () => {
+  const { client, fetch } = jwtClient([
+    makeResponse(ok({ status: "segments_ready" })),
+    makeResponse({ job_id: 5, status: "concatenating" }, 202),
+    makeResponse(ok({ status: "concatenating" })),
+    makeResponse(ok({ status: "done", final_video_url: "https://cdn/final.mp4" }))
+  ]);
+  const out = await client.longvideo.render(5, { interval: 0, timeout: 5 });
+  assert.ok(out.final_video_url.endsWith("final.mp4"));
+  const exportCall = fetch.calls.find((c) => c.url.endsWith("/export"));
+  assert.equal(exportCall.url, `${BASE}/api/auth/long-video/5/export`);
+  assert.deepEqual(jsonBody(exportCall), {});
+});
+
+test("invalid_or_expired_token triggers one relogin", async () => {
+  const fetch = makeFetch([
+    makeResponse({ success: false, error: { code: "invalid_or_expired_token", message: "x" } }, 401),
+    makeResponse({ token: "fresh" }),
+    makeResponse({ status: "concatenating" }, 202)
+  ]);
+  const client = new HeroShotsClient({ baseUrl: BASE, token: "stale", email: "a@b.com", password: "pw", fetch });
+  const out = await client.longvideo.export(5);
+  assert.equal(out.status, "concatenating");
+  assert.equal(client.token, "fresh");
+});

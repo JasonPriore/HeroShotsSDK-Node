@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.1
+
+### Fixed
+- Long video: `wait()` now returns when the clips are ready (`segments_ready`).
+  Like the web app, a job pauses there until the clips are exported, so 0.3.0
+  waited until the timeout. Each `segments[].video_url` is set at that point.
+- An expired portal login reported as `invalid_or_expired_token` now triggers
+  the automatic re-login (it maps to the token-expired error).
+- Guides: image results (`url` / `output_url`), video id (`video_id`), still-life
+  result (`processed_video_url`), `aspect_ratio` values, outfit items and the
+  id to pass to `download()` now match the API.
+
+### Added
+- Long video `export()` (joins the clips into `final_video_url`, not billed) and
+  `render()` (wait + export + wait for the final video). Portal login only.
+
 ## 0.3.0
 
 Aligns the Node SDK 1:1 with the Python SDK and covers the whole public

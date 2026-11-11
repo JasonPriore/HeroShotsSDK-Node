@@ -230,8 +230,13 @@ export class LongVideo {
   start(imageUrl?: string | null, options?: LongVideoStartOptions): Promise<JsonObject>;
   status(jobId: Id): Promise<JsonObject>;
   regenerateSegment(jobId: Id, segmentIndex: number, options?: { comment?: string; cascade?: boolean }): Promise<JsonObject>;
+  /** Portal JWT only. Joins the ready clips into `final_video_url`. */
+  export(jobId: Id, options?: { segment_order?: number[]; segmentOrder?: number[]; timeline?: JsonObject }): Promise<JsonObject>;
   view(token: string): Promise<JsonObject>;
+  /** Resolves at `segments_ready`, `done` or rejects on `failed`. */
   wait(jobId: Id, options?: WaitOptions): Promise<JsonObject>;
+  /** Portal JWT only: wait + export + wait for `final_video_url`. */
+  render(jobId: Id, options?: WaitOptions & { segment_order?: number[]; segmentOrder?: number[] }): Promise<JsonObject>;
 }
 
 export interface StillLifeStartOptions extends JsonObject {

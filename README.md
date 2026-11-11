@@ -34,7 +34,7 @@ Base URL defaults to `https://app.heroshots.ai` (override with `baseUrl` or
 | Endpoints | API key | Portal JWT |
 |---|---|---|
 | `/api/v1/*`: images, videos, long video, still life, avatars, bulk, library, generations, pricing, agency, brand | ✅ | ✅ |
-| Storyboard (StudioHero), uploads, image candidates, still-life background edits, BYO legal documents | ❌ | ✅ |
+| Storyboard (StudioHero), uploads, image candidates, long-video export (final cut), still-life background edits, BYO legal documents | ❌ | ✅ |
 
 - API keys are **refused on the Free plan** (`ForbiddenError`, code
   `plan_not_allowed`), except for agency accounts.
@@ -56,7 +56,7 @@ const job = await client.videos.generate({
   custom_prompt: "slow dolly-in, soft studio light",
   duration_seconds: 15
 });
-const done = await client.videos.wait(job.task_id || job.video_id);
+const done = await client.videos.wait(job.video_id);
 console.log(done.video_url);
 ```
 
@@ -77,7 +77,7 @@ const job = await client.storyboard.generate(briefs[0], 30, candidates[0], "prod
 const sb = await client.storyboard.wait(job.job_id);
 
 const vjob = await client.longvideo.start("product.jpg", { storyboard: sb.storyboard });
-const final = await client.longvideo.wait(vjob.job_id);
+const final = await client.longvideo.render(vjob.job_id); // clips + final cut (portal JWT)
 console.log(final.final_video_url);
 ```
 
@@ -88,7 +88,7 @@ console.log(final.final_video_url);
 | `client.account` | `me()`, `health()` |
 | `client.images` | `generate`, `status`, `wait`, `download`, `generateBackground`, `usageRightsQuote`, `usageRightsUpgrade`, `analyzeEditRegion`, `candidates`, `selectCandidate` |
 | `client.videos` | `generate`, `status`, `wait`, `download` |
-| `client.longvideo` | `start`, `status`, `wait`, `regenerateSegment`, `view` |
+| `client.longvideo` | `start`, `status`, `wait` (until `segments_ready`), `regenerateSegment`, `export`, `render` (final cut, portal JWT), `view` |
 | `client.stilllife` | `start`, `status`, `wait`, `previewBackground`, `changeBackground`, `changeBackgroundStatus` |
 | `client.storyboard` | `briefSuggestions`, `candidates`, `generate`, `frames`, `revise`, `status`, `wait`, `subjectMeasurements`, `analyzeProduct`, `creativity` |
 | `client.avatars` | `list`, `get`, `generate`, `createFromSteps`, `update`, `delete`, `uploadView`, `regenerateView`, `regenerateVariants`, `generatedVersion`, `setImageSet`, `generateSheet`, `generateVoice`, `resolveOutfitLink`, `changeOutfit`, `restoreOutfit`, `improvePrompt`, `analyzeAttributes`, `consentDocument` |

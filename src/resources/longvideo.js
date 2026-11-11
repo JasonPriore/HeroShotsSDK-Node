@@ -2,6 +2,12 @@
 
 const { Resource, compact } = require("./base");
 const polling = require("../polling");
+const { ProviderError } = require("../errors");
+
+// The job pauses here when every segment is rendered: the clips are ready
+// (`segments[].video_url`) and the final cut is made by `export()`.
+const SEGMENTS_READY = "segments_ready";
+const WAIT_OK = [...polling.STORYBOARD_OK, SEGMENTS_READY];
 
 /** Long / multi-segment video (API key or portal JWT, /api/v1/long-video). */
 class LongVideo extends Resource {
@@ -51,18 +57,75 @@ class LongVideo extends Resource {
     return this._post(`/api/v1/long-video/${jobId}/segments/${segmentIndex}/regenerate`, { json: body });
   }
 
+  /**
+   * POST /api/auth/long-video/{jobId}/export -> joins the clips into `final_video_url`.
+   *
+   * Portal JWT only. Needs every segment done (`segments_ready` or `done`).
+   * `segment_order` (1-based indexes) reorders the clips. Not billed.
+   */
+  export(jobId, { segment_order = undefined, segmentOrder = undefined, timeline = undefined } = {}) {
+    const body = compact({ segment_order: segment_order ?? segmentOrder, timeline });
+    return this._post(`/api/auth/long-video/${jobId}/export`, { json: body });
+  }
+
   /** GET /api/auth/long-video/view/{token} (share link payload, portal JWT). */
   view(token) {
     return this._get(`/api/auth/long-video/view/${token}`);
   }
 
-  /** Poll until `done`/`failed` -> payload with `final_video_url`. */
+  /**
+   * Poll until the clips are ready (`segments_ready`), `done` or `failed`.
+   *
+   * At `segments_ready` every `segments[i].video_url` is set but `final_video_url`
+   * is still empty: call `export()` (or use `render()`) to get the joined video.
+   * Dubbed jobs go straight to `done`.
+   */
   wait(jobId, { interval = 5.0, timeout = 1800.0, onProgress = null } = {}) {
     return polling.wait(
       () => this.status(jobId),
-      { terminalOk: polling.STORYBOARD_OK, terminalFail: polling.STORYBOARD_FAIL, interval, timeout, onProgress }
+      { terminalOk: WAIT_OK, terminalFail: polling.STORYBOARD_FAIL, interval, timeout, onProgress }
     );
+  }
+
+  /**
+   * Wait for the clips, export them and wait for `final_video_url` (portal JWT).
+   * Resolves with the final status payload (`status === "done"`).
+   */
+  async render(jobId, {
+    segment_order = undefined,
+    segmentOrder = undefined,
+    interval = 5.0,
+    timeout = 2400.0,
+    onProgress = null
+  } = {}) {
+    const deadline = Date.now() + timeout * 1000;
+    let job = await this.wait(jobId, { interval, timeout, onProgress });
+    if (String(job.status).toLowerCase() === "done" && job.final_video_url) {
+      return job;
+    }
+    await this.export(jobId, { segment_order: segment_order ?? segmentOrder });
+    while (true) {
+      job = await this.status(jobId);
+      if (onProgress) {
+        onProgress(job);
+      }
+      const status = String(job?.status || "").toLowerCase();
+      if (status === "done" && job.final_video_url) {
+        return job;
+      }
+      if (polling.STORYBOARD_FAIL.includes(status)) {
+        throw new ProviderError(String(job.error || `long video ${status}`), { code: "provider_error" });
+      }
+      if (Date.now() >= deadline) {
+        throw new polling.TimeoutError(
+          `long video export did not finish within ${timeout}s (last status=${JSON.stringify(status)})`
+        );
+      }
+      if (interval > 0) {
+        await polling.sleep(interval);
+      }
+    }
   }
 }
 
-module.exports = { LongVideo };
+module.exports = { LongVideo, SEGMENTS_READY };

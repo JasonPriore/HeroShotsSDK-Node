@@ -43,7 +43,7 @@ async function main() {
   const videoJob = await client.longvideo.start(product.public_url, {
     storyboard: storyboard.storyboard
   });
-  const final = await client.longvideo.wait(videoJob.job_id);
+  const final = await client.longvideo.render(videoJob.job_id); // wait for clips, export, final cut
   console.log(final.final_video_url);
 }
 

@@ -45,7 +45,8 @@ const CODE_MAP = {
   missing_bearer_token: AuthError,
   invalid_api_key: AuthError,
   invalid_token: AuthError,
-  invalid_or_expired_token: AuthError,
+  // Portal routes report an expired login this way: relogin once, like token_expired.
+  invalid_or_expired_token: TokenExpiredError,
   unauthorized: AuthError,
   user_not_found: AuthError,
   token_expired: TokenExpiredError,
