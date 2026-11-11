@@ -24,7 +24,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
-const { errorFromResponse, RateLimitError, TokenExpiredError } = require("./errors");
+const { errorFromResponse, RateLimitError, TokenExpiredError, ValidationError } = require("./errors");
 const { Account } = require("./resources/account");
 const { Agency } = require("./resources/agency");
 const { Avatars } = require("./resources/avatars");
@@ -105,6 +105,10 @@ class HeroShotsClient {
   }
 
   static async fromLogin(email, password, options = {}) {
+    // Also accept fromLogin({ email, password, ...options }).
+    if (email && typeof email === "object" && (password === undefined || password === null)) {
+      ({ email, password, ...options } = email);
+    }
     const client = new HeroShotsClient({ ...options, email, password });
     await client.login(email, password);
     return client;
@@ -116,6 +120,11 @@ class HeroShotsClient {
   }
 
   async login(email, password) {
+    if (typeof email !== "string" || !email || typeof password !== "string" || !password) {
+      throw new ValidationError("login(email, password): email and password must be non-empty strings", {
+        code: "validation_error"
+      });
+    }
     const data = await this.request("POST", "/api/auth/login", {
       json: { email, password },
       auth: false

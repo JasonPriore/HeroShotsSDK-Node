@@ -74,6 +74,7 @@ export const DEFAULT_MAX_RETRIES: number;
 export class HeroShotsClient {
   constructor(options?: ClientOptions | string);
   static fromLogin(email: string, password: string, options?: ClientOptions): Promise<HeroShotsClient>;
+  static fromLogin(options: ClientOptions & { email: string; password: string }): Promise<HeroShotsClient>;
 
   baseUrl: string;
   token: string | null;

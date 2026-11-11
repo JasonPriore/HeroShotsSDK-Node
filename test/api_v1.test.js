@@ -680,3 +680,19 @@ test("invalid_or_expired_token triggers one relogin", async () => {
   assert.equal(out.status, "concatenating");
   assert.equal(client.token, "fresh");
 });
+
+test("login rejects non-string credentials before any request", async () => {
+  const { ValidationError } = require("../src");
+  const fetch = makeFetch([]);
+  const client = new HeroShotsClient({ baseUrl: BASE, fetch });
+  await assert.rejects(client.login("a@b.com", { password: "x" }), ValidationError);
+  await assert.rejects(client.login({ email: "a@b.com" }, "pw"), ValidationError);
+  assert.equal(fetch.calls.length, 0);
+});
+
+test("fromLogin also accepts a single options object", async () => {
+  const fetch = makeFetch([makeResponse({ token: "jwt-1" })]);
+  const client = await HeroShotsClient.fromLogin({ email: "a@b.com", password: "pw", baseUrl: BASE, fetch });
+  assert.equal(client.token, "jwt-1");
+  assert.deepEqual(JSON.parse(fetch.calls[0].options.body), { email: "a@b.com", password: "pw" });
+});

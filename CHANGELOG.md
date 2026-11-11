@@ -6,6 +6,8 @@
 - Long video: `wait()` now returns when the clips are ready (`segments_ready`).
   Like the web app, a job pauses there until the clips are exported, so 0.3.0
   waited until the timeout. Each `segments[].video_url` is set at that point.
+- `login()` / `fromLogin()` reject a non-string email or password locally
+  (`ValidationError`) instead of sending it to the server.
 - An expired portal login reported as `invalid_or_expired_token` now triggers
   the automatic re-login (it maps to the token-expired error).
 - Guides: image results (`url` / `output_url`), video id (`video_id`), still-life
@@ -13,6 +15,7 @@
   id to pass to `download()` now match the API.
 
 ### Added
+- `HeroShotsClient.fromLogin({ email, password, ...options })` object form.
 - Long video `export()` (joins the clips into `final_video_url`, not billed) and
   `render()` (wait + export + wait for the final video). Portal login only.
 
