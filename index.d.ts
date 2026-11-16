@@ -99,6 +99,8 @@ export class HeroShotsClient {
   backgrounds: Backgrounds;
   categories: Categories;
   uploads: Uploads;
+  /** Voices for the video voiceover (portal JWT). */
+  audio: Audio;
   legal: Legal;
   agency: Agency;
   brand: Brand;
@@ -113,8 +115,16 @@ export class HeroShotsClient {
    */
   balance(): Promise<JsonObject>;
   withManagedUser(managedUserId: string | number | null): HeroShotsClient;
+  /**
+   * `path` is an API path or an absolute `http(s)://` URL; with an absolute URL the
+   * token and `X-Managed-User-Id` are sent only when it is the API host (`baseUrl`).
+   */
   request(method: string, path: string, options: RequestOptions & { raw: true }): Promise<Buffer>;
   request(method: string, path: string, options?: RequestOptions): Promise<any>;
+  /**
+   * GET a binary endpoint or an absolute file URL (`final_video_url`,
+   * `captioned_final_video_url`). The token is sent only to the API host.
+   */
   download(path: string, dest?: null, options?: { params?: JsonObject | null }): Promise<Buffer>;
   download(path: string, dest: string, options?: { params?: JsonObject | null }): Promise<string>;
 }
@@ -209,10 +219,72 @@ export class Videos {
   download(logId: Id, dest: string): Promise<string>;
 }
 
+export type LogoMode = "in_video" | "end_only" | "off";
+export type VideoType = "ugc" | "cinema" | "spot_tv" | "sas_software";
+export type UgcStyle = "amateur" | "top_creator";
+/** Avatar views the render accepts as `avatar_view_type` ("avatar" is not one). */
+export type AvatarViewType =
+  | "fullbody"
+  | "profile_left"
+  | "profile_right"
+  | "mezzo_busto"
+  | "closeup"
+  | "ear"
+  | "wrist"
+  | "feet"
+  | "bust_only"
+  | "legs_lower";
+
+/** Auto-edit request (graphics, karaoke captions, logo, end card). */
+export interface MontageRequest extends JsonObject {
+  brief?: string;
+  language_code?: string;
+  logo_url?: string;
+  logo_mode?: LogoMode | string;
+  /** Images shown only in the montage. */
+  inserts?: Array<{ url: string; label?: string }>;
+  /** "outro" = only the animated logo closing. */
+  kind?: string;
+}
+
+/** One speaking role of a storyboard. */
+export interface VoiceRole {
+  /** e.g. `subject_1`, `subject_2`, `voice_over`. */
+  key: string;
+  label: string;
+  role_type: "subject" | "narrator" | string;
+  text: string;
+  tts_text: string;
+}
+
+export interface VoiceCastEntry {
+  label: string;
+  role_type: "subject" | "narrator" | string;
+  voice_id: string;
+  text: string;
+  tts_text: string;
+}
+
+/** `voiceover_cast`: `{role_key: {label, role_type, voice_id, text, tts_text}}`. */
+export type VoiceCast = Record<string, VoiceCastEntry>;
+/** One voice id for every role, or `{role_key: voice_id}`. */
+export type VoiceIds = string | Record<string, string> | null | undefined;
+
 export interface LongVideoStartOptions extends JsonObject {
   custom_prompt?: string;
   customPrompt?: string;
+  /**
+   * Storyboard (or the `storyboard.wait()` payload): sent as `custom_prompt` =
+   * `optimized_prompt`, `studiohero_segment_prompts`,
+   * `studiohero_segment_reference_image_urls` and `duration_seconds` (explicit options win).
+   */
   storyboard?: JsonObject;
+  /** Auto-edit after the export; the edited video is `captioned_final_video_url`. */
+  montage?: MontageRequest | boolean | null;
+  /** One voice per speaking role (see `storyboard.voiceCast`); `tts_voice_id` defaults to its first voice. */
+  voiceover_cast?: VoiceCast | VoiceCastEntry[];
+  voiceoverCast?: VoiceCast | VoiceCastEntry[];
+  captions?: boolean;
   /** 30, 45 or 60. */
   duration_seconds?: number;
   durationSeconds?: number;
@@ -227,16 +299,84 @@ export interface LongVideoStartOptions extends JsonObject {
   language_code?: string;
 }
 
+/** Options of `longvideo.startFromStoryboard` (snake_case or camelCase; extra keys forwarded and win). */
+export interface StartFromStoryboardOptions extends JsonObject {
+  product_image_url?: string;
+  productImageUrl?: string;
+  subject_image_url?: string;
+  subjectImageUrl?: string;
+  image_url?: string;
+  imageUrl?: string;
+  avatar_id?: Id;
+  avatarId?: Id;
+  avatar_view_type?: AvatarViewType | string;
+  avatarViewType?: AvatarViewType | string;
+  avatar_image_set?: "original" | "generated" | string;
+  avatarImageSet?: "original" | "generated" | string;
+  additional_product_image_urls?: string[];
+  additionalProductImageUrls?: string[];
+  product_box_closed_url?: string;
+  productBoxClosedUrl?: string;
+  product_box_open_url?: string;
+  productBoxOpenUrl?: string;
+  extra_products?: Array<{ image_url: string; box_closed_url?: string; box_open_url?: string } & JsonObject>;
+  extraProducts?: Array<{ image_url: string; box_closed_url?: string; box_open_url?: string } & JsonObject>;
+  brand_logo_url?: string;
+  brandLogoUrl?: string;
+  brand_logo_mode?: LogoMode;
+  brandLogoMode?: LogoMode;
+  background_image_url?: string;
+  backgroundImageUrl?: string;
+  body_posture_image_url?: string;
+  bodyPostureImageUrl?: string;
+  /** One voice for every speaking role, or `{role_key: voice_id}` covering every role. */
+  voice_id?: VoiceIds;
+  voiceId?: VoiceIds;
+  /** Spoken language (default "it"). */
+  language_code?: string;
+  languageCode?: string;
+  /** `true` = auto-edit with the portal defaults; an object sets the fields (missing ones filled). */
+  montage?: MontageRequest | boolean | null;
+  brief?: string;
+  /** Overrides the storyboard's `optimized_prompt`. */
+  custom_prompt?: string;
+  customPrompt?: string;
+  duration_seconds?: number;
+  durationSeconds?: number;
+  ratio?: string;
+  resolution?: string;
+}
+
+export interface MontageOptions extends JsonObject {
+  brief?: string;
+  language_code?: string;
+  languageCode?: string;
+  logo_url?: string;
+  logoUrl?: string;
+  logo_mode?: LogoMode | string;
+  logoMode?: LogoMode | string;
+  inserts?: Array<{ url: string; label?: string }>;
+}
+
 export class LongVideo {
   start(imageUrl?: string | null, options?: LongVideoStartOptions): Promise<JsonObject>;
+  /** The StudioHero portal's render in one call (inputs, prompts, frames, references, voices, montage). */
+  startFromStoryboard(storyboard: JsonObject, options?: StartFromStoryboardOptions): Promise<JsonObject>;
+  /** Portal JWT only. Auto-edit an existing job; result in `captioned_final_video_url`. */
+  montage(jobId: Id, options?: MontageOptions): Promise<JsonObject>;
+  /** Portal JWT only. Can this server run the auto-edit? */
+  montageAvailable(): Promise<boolean>;
+  /** True when no auto-edit is asked, it is done, or it stopped (failed / expired). */
+  montageSettled(job: JsonObject): boolean;
+  static montageSettled(job: JsonObject): boolean;
   status(jobId: Id): Promise<JsonObject>;
   regenerateSegment(jobId: Id, segmentIndex: number, options?: { comment?: string; cascade?: boolean }): Promise<JsonObject>;
   /** Portal JWT only. Joins the ready clips into `final_video_url`. */
   export(jobId: Id, options?: { segment_order?: number[]; segmentOrder?: number[]; timeline?: JsonObject }): Promise<JsonObject>;
   view(token: string): Promise<JsonObject>;
-  /** Resolves at `segments_ready`, `done` or rejects on `failed`. */
+  /** Resolves at `segments_ready`, `done` (after the auto-edit, if asked) or rejects on `failed`. */
   wait(jobId: Id, options?: WaitOptions): Promise<JsonObject>;
-  /** Portal JWT only: wait + export + wait for `final_video_url`. */
+  /** Portal JWT only: wait + export + wait for `final_video_url` (and the auto-edit, if asked). */
   render(jobId: Id, options?: WaitOptions & { segment_order?: number[]; segmentOrder?: number[] }): Promise<JsonObject>;
 }
 
@@ -265,9 +405,55 @@ export class StillLife {
   changeBackgroundStatus(taskId: Id): Promise<JsonObject>;
 }
 
+export interface BriefSuggestion extends JsonObject {
+  title: string;
+  brief: string;
+  pros?: string[];
+  cons?: string[];
+}
+
+/**
+ * Fields the portal sends with every storyboard call (all optional, forwarded verbatim).
+ * `product_image_url` / `subject_image_url` here are uploaded like the positional ones.
+ */
+export interface StoryboardPayload extends JsonObject {
+  product_image_url?: string;
+  subject_image_url?: string;
+  duration_seconds?: number;
+  ratio?: string;
+  resolution?: string;
+  language_code?: string;
+  video_type?: VideoType | string;
+  ugc_style?: UgcStyle | string;
+  look_mode?: "current" | "custom" | string;
+  look_description?: string;
+  still_life?: boolean;
+  reference_video_url?: string;
+  video_provider?: string;
+  storyboard_reference_frames_required?: boolean;
+  storyboard_board_required?: boolean;
+  avatar_id?: Id;
+  avatar_view_type?: AvatarViewType | string;
+  avatar_image_set?: string;
+  additional_product_image_urls?: string[];
+  background_image_url?: string;
+  body_posture_image_url?: string;
+  brand_logo_url?: string;
+  brand_logo_mode?: LogoMode;
+  product_box_closed_url?: string;
+  product_box_open_url?: string;
+  extra_products?: JsonObject[];
+}
+
+export interface RecommendOption {
+  title: string;
+  text: string;
+}
+
 /** StudioHero storyboard intelligence (portal JWT only). */
 export class Storyboard {
-  briefSuggestions(productImageUrl?: string | null, subjectImageUrl?: string | null, payload?: JsonObject): Promise<string[] | JsonObject>;
+  /** Brief suggestions: `[{title, brief, pros, cons}]`. */
+  briefSuggestions(productImageUrl?: string | null, subjectImageUrl?: string | null, payload?: StoryboardPayload): Promise<BriefSuggestion[]>;
   candidates(
     customPrompt: string,
     durationSeconds: number,
@@ -283,10 +469,34 @@ export class Storyboard {
     subjectImageUrl?: string | null,
     payload?: JsonObject
   ): Promise<JsonObject>;
-  frames(storyboard: JsonObject, productImageUrl?: string | null, subjectImageUrl?: string | null, payload?: JsonObject): Promise<JsonObject>;
+  /** Deferred 4K reference frames: sends the storyboard's `segments`. Merge the result with `merge()`. */
+  frames(storyboard: JsonObject, productImageUrl?: string | null, subjectImageUrl?: string | null, payload?: StoryboardPayload): Promise<JsonObject>;
+  /** Storyboard board image (async). Merge the result with `merge()`. */
+  board(storyboard: JsonObject, productImageUrl?: string | null, subjectImageUrl?: string | null, payload?: StoryboardPayload): Promise<JsonObject>;
+  /** The portal's "Consigliato": `{recommended_index, reason}`. */
+  recommend(
+    kind: "brief" | "concept",
+    options: Array<string | RecommendOption | JsonObject>,
+    productImageUrl?: string | null,
+    subjectImageUrl?: string | null,
+    payload?: StoryboardPayload & { chosen_brief?: string; chosenBrief?: string; custom_prompt?: string }
+  ): Promise<{ recommended_index: number; reason?: string } & JsonObject>;
   revise(revisionRequest: string, customPrompt: string, durationSeconds: number, storyboard: JsonObject, payload?: JsonObject): Promise<JsonObject>;
   status(jobId: string): Promise<JsonObject>;
   wait(jobId: string, options?: WaitOptions): Promise<JsonObject>;
+  /** Storyboard with a `frames()` / `board()` job result applied (new object). */
+  merge(storyboard: JsonObject, result: JsonObject): JsonObject;
+  segmentPrompts(storyboard: JsonObject): string[];
+  segmentReferenceImageUrls(storyboard: JsonObject): string[][];
+  voiceRoles(storyboard: JsonObject): VoiceRole[];
+  voiceCast(storyboard: JsonObject, voiceIds?: VoiceIds): VoiceCast;
+  missingVoiceRoles(storyboard: JsonObject, voiceIds?: VoiceIds): string[];
+  static merge(storyboard: JsonObject, result: JsonObject): JsonObject;
+  static segmentPrompts(storyboard: JsonObject): string[];
+  static segmentReferenceImageUrls(storyboard: JsonObject): string[][];
+  static voiceRoles(storyboard: JsonObject): VoiceRole[];
+  static voiceCast(storyboard: JsonObject, voiceIds?: VoiceIds): VoiceCast;
+  static missingVoiceRoles(storyboard: JsonObject, voiceIds?: VoiceIds): string[];
   subjectMeasurements(payload?: JsonObject): Promise<JsonObject>;
   analyzeProduct(payload?: JsonObject): Promise<JsonObject>;
   creativity(payload?: JsonObject): Promise<JsonObject>;
@@ -487,6 +697,21 @@ export class Uploads {
   referenceAudio(file: FileInput): Promise<JsonObject>;
 }
 
+export interface Voice extends JsonObject {
+  voice_id: string;
+  name: string;
+  category?: string;
+  labels?: JsonObject;
+  description?: string;
+  preview_url?: string;
+}
+
+/** Voices for the video voiceover (portal JWT only). */
+export class Audio {
+  /** GET /audio/voices -> `{configured, voices}`. */
+  voices(): Promise<{ configured: boolean; voices: Voice[] } & JsonObject>;
+}
+
 /** BYO compliance documents (portal JWT only). */
 export class Legal {
   byoStatus(): Promise<JsonObject>;
@@ -559,3 +784,32 @@ export class Brand {
 export const FOLDERS: string[];
 export const DURATIONS: number[];
 export const VIEW_TYPES: ViewType[];
+/** SDK version (same as package.json). */
+export const VERSION: string;
+
+/** True when no auto-edit is asked, it is done, or it stopped (failed / expired). */
+export function montageSettled(job: JsonObject): boolean;
+
+/** StudioHero helpers (pure functions, no HTTP): storyboard -> the fields the portal sends. */
+export namespace studiohero {
+  const AVATAR_VIEW_TYPES: AvatarViewType[];
+  const LOGO_MODES: LogoMode[];
+  const VIDEO_TYPES: VideoType[];
+  const UGC_STYLES: UgcStyle[];
+  /** The storyboard itself or the `storyboard.wait()` payload -> a copy of the storyboard. */
+  function unwrapStoryboard(storyboard: any): JsonObject;
+  function dedupeUrls(urls: Iterable<any>, options?: { allowDataUrls?: boolean }): string[];
+  function segmentPrompts(storyboard: any): string[];
+  function segmentReferenceImageUrls(storyboard: any): string[][];
+  /** `custom_prompt`, `studiohero_segment_prompts`, `studiohero_segment_reference_image_urls`, `duration_seconds`. */
+  function storyboardStartFields(storyboard: any): JsonObject;
+  function hasSpokenText(value: any): boolean;
+  function cleanSpokenText(value: any): string;
+  function roleKey(value: any, fallback?: string): string;
+  function voiceRoles(storyboard: any): VoiceRole[];
+  function voiceCast(storyboard: any, voiceIds?: VoiceIds): VoiceCast;
+  function missingVoiceRoles(storyboard: any, voiceIds?: VoiceIds): string[];
+  function firstVoiceId(cast: any): string | null;
+  function recommendOption(item: any): RecommendOption;
+  function truthy(value: any): boolean;
+}

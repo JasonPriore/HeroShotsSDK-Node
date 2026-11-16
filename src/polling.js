@@ -13,13 +13,22 @@ function sleep(seconds) {
   return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
 }
 
+/**
+ * Poll `getFn` until the job reaches a terminal state.
+ *
+ * `ready` (optional) is asked on a successful state: while it returns false the
+ * job keeps being polled (e.g. a long video whose auto-edit still runs).
+ * Resolves with the final payload; rejects with `ProviderError` on a failed job
+ * and `TimeoutError` when the deadline passes.
+ */
 async function wait(getFn, {
   terminalOk = STORYBOARD_OK,
   terminalFail = STORYBOARD_FAIL,
   statusKey = "status",
   interval = 3.0,
   timeout = 600.0,
-  onProgress = null
+  onProgress = null,
+  ready = null
 } = {}) {
   const ok = new Set(terminalOk.map((value) => String(value).toLowerCase()));
   const fail = new Set(terminalFail.map((value) => String(value).toLowerCase()));
@@ -32,7 +41,7 @@ async function wait(getFn, {
     }
 
     const status = String(payload?.[statusKey] || "").toLowerCase();
-    if (ok.has(status)) {
+    if (ok.has(status) && (!ready || ready(payload))) {
       return payload;
     }
     if (fail.has(status)) {

@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.4.0
+
+Reproduces the StudioHero web-portal flow end to end (brief -> concepts ->
+recommended pick -> storyboard -> frames/board -> voices -> render with voice
+and auto-edit -> download). Same behaviour as the Python and PHP SDKs 0.4.0.
+Existing signatures keep working.
+
+### Fixed
+- `longvideo.start(imageUrl, { storyboard })` sent a `storyboard` field the
+  backend never reads. It now sends what the portal sends: `custom_prompt` = the
+  storyboard's `optimized_prompt`, `studiohero_segment_prompts` (each segment's
+  `visual_prompt` / `seedance_prompt`), `studiohero_segment_reference_image_urls`
+  (each segment's reference frames + control frame, omitted when there are none)
+  and `duration_seconds`. Explicit options still win. Accepts the
+  `storyboard.wait()` payload or the storyboard itself.
+- `storyboard.frames()` sent `storyboard`; the backend reads `segments`, so the
+  call failed with "segments are required". It now sends the segments (plus
+  `selected_candidate` and `duration_seconds`).
+- `client.download()` (and `request()`) accept absolute `http(s)://` URLs
+  (`final_video_url`, `captioned_final_video_url`, CDN links). The token and
+  `X-Managed-User-Id` are sent only when the URL has the API's scheme, host and
+  port.
+- Guides and types: brief suggestions are `{title, brief, pros, cons}` objects
+  (not strings, `BriefSuggestion[]` in `index.d.ts`); `revise()` returns the
+  storyboard itself; frames arrive under `frames` in the job result.
+
+### Added
+- `longvideo.startFromStoryboard(storyboard, options)`: the portal's render in
+  one call (inputs, avatar view, extra products and boxes, brand logo, optimized
+  prompt, duration, per-segment prompts and frames, reference images, one voice
+  per role, auto-edit).
+- Auto-edit (graphics, karaoke captions, logo, end card): `montage` on
+  `longvideo.start()` / `startFromStoryboard()`, `longvideo.montage(jobId, ...)`
+  after generation, `longvideo.montageAvailable()`. `wait()` and `render()` keep
+  polling until the auto-edit is done (`montage_done`, video in
+  `captioned_final_video_url`); `longvideo.montageSettled(job)` (also
+  `LongVideo.montageSettled` and the `montageSettled` export).
+- Voices: `client.audio.voices()` (`GET /audio/voices`),
+  `storyboard.voiceRoles()`, `storyboard.voiceCast(storyboard, voiceIds)`,
+  `storyboard.missingVoiceRoles()`, `voiceover_cast` / `voiceoverCast` on
+  `longvideo.start()` (`tts_voice_id` defaults to the first role's voice).
+- `storyboard.recommend(kind, options, ...)` (`POST /video/storyboard/recommend`,
+  the portal's "Consigliato"), `storyboard.board()` (storyboard board image),
+  `storyboard.merge()` (applies a frames / board result to the storyboard),
+  `storyboard.segmentPrompts()`, `storyboard.segmentReferenceImageUrls()`. The
+  helpers are also static (`Storyboard.merge(...)`).
+- `polling.wait()` accepts a `ready(payload)` callback (keeps polling a
+  successful state while it returns false).
+- Exports: `studiohero` (the pure helpers: `storyboardStartFields`,
+  `voiceRoles`, `voiceCast`, `cleanSpokenText`, ...) and `VERSION`.
+- Storyboard calls also upload local `product_image_url` / `subject_image_url`
+  given in the payload object (not only the positional arguments), so one
+  `common` object can be reused across calls.
+- Docs and types for the storyboard request fields the portal sends:
+  `video_type`, `ugc_style`, `look_mode`, `storyboard_reference_frames_required`,
+  `storyboard_board_required`, `brand_logo_url` / `brand_logo_mode`,
+  `product_box_closed_url` / `product_box_open_url`, `extra_products`,
+  `avatar_view_type`.
+
 ## 0.3.1
 
 ### Fixed

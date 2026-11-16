@@ -34,7 +34,7 @@ Base URL defaults to `https://app.heroshots.ai` (override with `baseUrl` or
 | Endpoints | API key | Portal JWT |
 |---|---|---|
 | `/api/v1/*`: images, videos, long video, still life, avatars, bulk, library, generations, pricing, agency, brand | ✅ | ✅ |
-| Storyboard (StudioHero), uploads, image candidates, long-video export (final cut), still-life background edits, BYO legal documents | ❌ | ✅ |
+| Storyboard (StudioHero), voices, uploads, image candidates, long-video export (final cut) and auto-edit, still-life background edits, BYO legal documents | ❌ | ✅ |
 
 - API keys are **refused on the Free plan** (`ForbiddenError`, code
   `plan_not_allowed`), except for agency accounts.
@@ -62,24 +62,57 @@ console.log(done.video_url);
 
 `/api/v1` billing metadata (charges, credits left) is under `result._meta`.
 
-## StudioHero storyboard (portal JWT)
+## StudioHero: the portal flow (portal JWT)
 
 ```js
 const client = await Client.fromLogin("dev@partner.com", "secret");
+const product = (await client.uploads.image("product.jpg", "products")).public_url;
+const subject = (await client.uploads.image("model.jpg", "subjects")).public_url;
+const common = {
+  product_image_url: product, subject_image_url: subject, duration_seconds: 30,
+  ratio: "9:16", language_code: "it", video_type: "ugc", ugc_style: "top_creator",
+  look_mode: "current"
+};
 
-// Local file paths are auto-uploaded to hosted URLs (portal JWT only).
-const briefs = await client.storyboard.briefSuggestions("product.jpg", "model.jpg", {
-  duration_seconds: 30,
-  language_code: "it"
+const briefs = await client.storyboard.briefSuggestions(null, null, common);  // [{title, brief, ...}]
+const best = await client.storyboard.recommend("brief", briefs, null, null, common);
+const brief = briefs[best.recommended_index].brief;
+
+const concepts = await client.storyboard.candidates(brief, 30, null, null, common);
+const pick = (await client.storyboard.recommend("concept", concepts, null, null,
+  { ...common, custom_prompt: brief, chosen_brief: brief })).recommended_index;
+
+const job = await client.storyboard.generate(brief, 30, concepts[pick], null, null, common);
+let sb = (await client.storyboard.wait(job.job_id)).storyboard;
+if (sb.reference_frames_deferred) {                                        // 4K reference frames
+  const fjob = await client.storyboard.frames(sb, null, null, common);
+  sb = client.storyboard.merge(sb, await client.storyboard.wait(fjob.job_id, { timeout: 900 }));
+}
+
+const { voices } = await client.audio.voices();                            // [{voice_id, name, ...}]
+const voiceIds = Object.fromEntries(client.storyboard.voiceRoles(sb).map((r) => [r.key, voices[0].voice_id]));
+
+const vjob = await client.longvideo.startFromStoryboard(sb, {
+  product_image_url: product, subject_image_url: subject,
+  voice_id: voiceIds, language_code: "it", montage: true, brief, ratio: "9:16"
 });
-const candidates = await client.storyboard.candidates(briefs[0], 30, "product.jpg", "model.jpg");
-const job = await client.storyboard.generate(briefs[0], 30, candidates[0], "product.jpg", "model.jpg");
-const sb = await client.storyboard.wait(job.job_id);
-
-const vjob = await client.longvideo.start("product.jpg", { storyboard: sb.storyboard });
-const final = await client.longvideo.render(vjob.job_id); // clips + final cut (portal JWT)
-console.log(final.final_video_url);
+const final = await client.longvideo.render(vjob.job_id);                  // clips -> export -> auto-edit
+await client.download(final.captioned_final_video_url || final.final_video_url, "out/spot.mp4");
 ```
+
+`startFromStoryboard` sends what the portal sends: the inputs (avatar with a
+real `avatar_view_type` such as `fullbody` / `mezzo_busto` / `closeup`, extra
+product views, `product_box_closed_url` / `product_box_open_url`,
+`extra_products`, `brand_logo_url` + `brand_logo_mode`), `custom_prompt` = the
+storyboard's `optimized_prompt`, the per-segment prompts and reference frames,
+`reference_image_urls`, `voiceover_cast` + `tts_voice_id` + `language_code` and
+`montage`. The auto-edited video is `captioned_final_video_url`;
+`final_video_url` stays the plain cut. Storyboard request fields:
+`video_type` (`ugc` | `cinema` | `spot_tv` | `sas_software`), `ugc_style`
+(`amateur` | `top_creator`), `look_mode` (`current`), `language_code`,
+`storyboard_reference_frames_required`, `storyboard_board_required`. The pure
+helpers behind it are exported as `studiohero` (`storyboardStartFields`,
+`voiceRoles`, `voiceCast`, ...).
 
 ## Resources
 
@@ -88,9 +121,10 @@ console.log(final.final_video_url);
 | `client.account` | `me()`, `health()` |
 | `client.images` | `generate`, `status`, `wait`, `download`, `generateBackground`, `usageRightsQuote`, `usageRightsUpgrade`, `analyzeEditRegion`, `candidates`, `selectCandidate` |
 | `client.videos` | `generate`, `status`, `wait`, `download` |
-| `client.longvideo` | `start`, `status`, `wait` (until `segments_ready`), `regenerateSegment`, `export`, `render` (final cut, portal JWT), `view` |
+| `client.longvideo` | `start`, `startFromStoryboard` (the portal's render), `status`, `wait` (until `segments_ready`), `regenerateSegment`, `export`, `render` (final cut + auto-edit, portal JWT), `montage`, `montageAvailable`, `montageSettled`, `view` |
 | `client.stilllife` | `start`, `status`, `wait`, `previewBackground`, `changeBackground`, `changeBackgroundStatus` |
-| `client.storyboard` | `briefSuggestions`, `candidates`, `generate`, `frames`, `revise`, `status`, `wait`, `subjectMeasurements`, `analyzeProduct`, `creativity` |
+| `client.storyboard` | `briefSuggestions`, `candidates`, `recommend`, `generate`, `frames`, `board`, `revise`, `status`, `wait`, `merge`, `segmentPrompts`, `segmentReferenceImageUrls`, `voiceRoles`, `voiceCast`, `missingVoiceRoles`, `subjectMeasurements`, `analyzeProduct`, `creativity` |
+| `client.audio` | `voices` (voice ids for the voiceover, portal JWT) |
 | `client.avatars` | `list`, `get`, `generate`, `createFromSteps`, `update`, `delete`, `uploadView`, `regenerateView`, `regenerateVariants`, `generatedVersion`, `setImageSet`, `generateSheet`, `generateVoice`, `resolveOutfitLink`, `changeOutfit`, `restoreOutfit`, `improvePrompt`, `analyzeAttributes`, `consentDocument` |
 | `client.bulk` | `list`, `create`, `get`, `update`, `delete`, `uploadImages`, `start`, `wait`, `regenerateItem`, `regenerateAll`, `cancelItem`, `removeItem`, `replaceProduct`, `previews`, `attempts`, `selectAttempt`, `downloadItem`, `downloadProduct`, `downloadGenerated` |
 | `client.generations` | `list`, `iterate` (async generator over every page) |
@@ -129,7 +163,11 @@ directories) and resolve to its path when you pass a destination.
 const bytes = await client.images.download(logId);                     // Buffer
 const file = await client.videos.download(logId, "out/spot.mp4");      // "out/spot.mp4"
 const zip = await client.bulk.downloadGenerated(bulkId, "out/bulk.zip", { item_ids: [1, 2] });
+await client.download(job.final_video_url, "out/final.mp4");            // absolute URLs work too
 ```
+
+The token is sent only when the URL points at the API host (`baseUrl`), never
+to a third-party CDN.
 
 ## Errors
 

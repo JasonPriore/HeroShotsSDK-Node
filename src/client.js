@@ -27,6 +27,7 @@ const path = require("node:path");
 const { errorFromResponse, RateLimitError, TokenExpiredError, ValidationError } = require("./errors");
 const { Account } = require("./resources/account");
 const { Agency } = require("./resources/agency");
+const { Audio } = require("./resources/audio");
 const { Avatars } = require("./resources/avatars");
 const { Brand } = require("./resources/brand");
 const { Bulk } = require("./resources/bulk");
@@ -99,6 +100,7 @@ class HeroShotsClient {
     this.categories = new Categories(this);
     // Files, compliance, relationships.
     this.uploads = new Uploads(this);
+    this.audio = new Audio(this);
     this.legal = new Legal(this);
     this.agency = new Agency(this);
     this.brand = new Brand(this);
@@ -232,6 +234,10 @@ class HeroShotsClient {
    * Options: `json`, `params` (null/undefined dropped), `formData`, `auth`
    * (default true), `unwrap` (default: inferred from `/api/v1/` paths) and
    * `raw` (return the body as a Buffer, for file downloads).
+   *
+   * `requestPath` may also be an absolute `http(s)://` URL; the Authorization and
+   * X-Managed-User-Id headers are then sent only when it points at the API host
+   * (same scheme, host and port as `baseUrl`), never to a third-party CDN.
    */
   async request(method, requestPath, options = {}, retried = false) {
     const {
@@ -243,7 +249,9 @@ class HeroShotsClient {
       raw = false
     } = options;
 
-    const url = new URL(this.baseUrl + requestPath);
+    const absolute = isAbsoluteUrl(requestPath);
+    const url = new URL(absolute ? requestPath : this.baseUrl + requestPath);
+    const sendAuth = auth && (!absolute || this._isApiUrl(requestPath));
     if (params) {
       for (const [key, value] of Object.entries(params)) {
         if (value !== undefined && value !== null) {
@@ -256,10 +264,10 @@ class HeroShotsClient {
     if (!raw) {
       headers.Accept = "application/json";
     }
-    if (auth && this.token) {
+    if (sendAuth && this.token) {
       headers.Authorization = `Bearer ${this.token}`;
     }
-    if (auth && this.managedUserId !== null && this.managedUserId !== undefined) {
+    if (sendAuth && this.managedUserId !== null && this.managedUserId !== undefined) {
       headers["X-Managed-User-Id"] = String(this.managedUserId);
     }
 
@@ -324,8 +332,12 @@ class HeroShotsClient {
   }
 
   /**
-   * GET a binary endpoint. Resolves to a Buffer, or writes `dest` (creating
-   * parent directories) and resolves to its path.
+   * GET a binary endpoint or file URL. Resolves to a Buffer, or writes `dest`
+   * (creating parent directories) and resolves to its path.
+   *
+   * `requestPath` is an API path (`/api/v1/video/42/download`) or an absolute
+   * `http(s)://` URL such as `final_video_url` / `captioned_final_video_url`.
+   * The token is sent only to the API host.
    */
   async download(requestPath, dest = null, { params = null } = {}) {
     const content = await this.request("GET", requestPath, { params, raw: true });
@@ -336,6 +348,12 @@ class HeroShotsClient {
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.writeFile(target, content);
     return target;
+  }
+
+  /** True when `url` has the same scheme, host and port as `baseUrl`. */
+  _isApiUrl(url) {
+    const target = urlOrigin(url);
+    return target !== null && target === urlOrigin(this.baseUrl);
   }
 
   async _send(url, init) {
@@ -395,6 +413,23 @@ async function appendFile(formData, field, file, defaultName = "file") {
   } else {
     formData.append(field, file);
   }
+}
+
+function isAbsoluteUrl(value) {
+  return typeof value === "string" && /^https?:\/\//i.test(value);
+}
+
+/** `scheme://host:port` with the default port filled in, or null when unparsable. */
+function urlOrigin(value) {
+  let parsed;
+  try {
+    parsed = new URL(String(value));
+  } catch (_err) {
+    return null;
+  }
+  const scheme = parsed.protocol.replace(/:$/, "").toLowerCase();
+  const port = parsed.port || { http: "80", https: "443" }[scheme] || "";
+  return `${scheme}://${parsed.hostname.toLowerCase()}:${port}`;
 }
 
 function isPlainObject(value) {
